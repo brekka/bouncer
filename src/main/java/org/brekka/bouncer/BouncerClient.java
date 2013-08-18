@@ -17,14 +17,29 @@
 package org.brekka.bouncer;
 
 /**
- * TODO Description of BouncerClient
- *
+ * Contract for a client that provides the means to obtain exclusive access to a bouncer server lock.
+ * 
  * @author Andrew Taylor (andrew@brekka.org)
  */
 public interface BouncerClient {
 
+    /**
+     * Return the name of the lock this client is trying to gain exclusive access to.
+     * 
+     * @return the lock name
+     */
+    String getLockName();
+
+    /**
+     * Does this client currently have exclusive access to the lock?
+     * 
+     * @return true if exclusive access has been gained.
+     */
     boolean hasExclusiveAccess();
 
+    /**
+     * Shutdown this client.
+     */
     void shutdown();
 
 }

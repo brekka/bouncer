@@ -16,32 +16,71 @@
 
 package org.brekka.bouncer;
 
-import java.util.concurrent.TimeUnit;
+import static org.junit.Assert.*;
 
+import java.io.IOException;
+import java.util.Collections;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.brekka.bouncer.server.BouncerServer;
+import org.junit.Before;
+import org.junit.Test;
 
 /**
- * TODO Description of Main
+ * Basic integration tests
  *
  * @author Andrew Taylor (andrew@brekka.org)
  */
-public class Main {
-    public static void main(String[] args) throws Exception {
-        
+public class IntegrationTest {
+
+    private BouncerServer server;
+    
+    /**
+     * @throws java.lang.Exception
+     */
+    @Before
+    public void setUp() throws Exception {
+        server = new BouncerServer(12321, 4000, 2000, Collections.<String>emptySet(), false);
+        Thread t = new Thread() {
+            public void run() {
+                try {
+                    server.serve();
+                } catch (IOException e) {
+                    // Ignore
+                }
+            }
+        };
+        t.start();
+    }
+    
+    public void tearDown() throws Exception {
+        server.shutdown();
+    }
+
+    /**
+     * TODO Crude simple test
+     * @throws Exception
+     */
+    @Test
+    public void test() throws Exception {
         BouncerClient client = new DefaultBouncerClient("localhost", 12321, "Bob");
         BouncerCoordinatedLock lock = new BouncerCoordinatedLock(client);
         CoordinatedScheduledThreadPoolExecutor ex = new CoordinatedScheduledThreadPoolExecutor(lock, 1);
         
+        final AtomicBoolean called = new AtomicBoolean();
         
         ex.schedule(new Runnable() {
             
             public void run() {
-                // TODO Auto-generated method stub
-                System.out.println("Hey");
+                called.set(true);
             }
         }, 4, TimeUnit.SECONDS);
         
         ex.shutdown();
         ex.awaitTermination(7, TimeUnit.SECONDS);
         client.shutdown();
+        assertTrue(called.get());
     }
+
 }

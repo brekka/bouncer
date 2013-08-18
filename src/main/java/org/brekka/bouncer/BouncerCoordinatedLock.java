@@ -21,57 +21,71 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 
 /**
- * TODO Description of BouncerCoordinatedLock
- *
+ * A wrapper to make the {@link BouncerClient} behave a little bit like a {@link Lock}. However it does not implement
+ * all of the operations of {@link Lock} so should only be used as an adapter for
+ * {@link CoordinatedScheduledThreadPoolExecutor}.
+ * 
  * @author Andrew Taylor (andrew@brekka.org)
  */
 public class BouncerCoordinatedLock implements Lock {
-    
 
+    /**
+     * The client to wrap
+     */
     private final BouncerClient remote;
-    
+
     public BouncerCoordinatedLock(BouncerClient remote) {
         this.remote = remote;
     }
 
-    /* (non-Javadoc)
+    /*
+     * (non-Javadoc)
+     * 
      * @see java.util.concurrent.locks.Lock#lock()
      */
     public void lock() {
         throw new UnsupportedOperationException();
     }
 
-    /* (non-Javadoc)
+    /*
+     * (non-Javadoc)
+     * 
      * @see java.util.concurrent.locks.Lock#lockInterruptibly()
      */
     public void lockInterruptibly() throws InterruptedException {
         throw new UnsupportedOperationException();
     }
 
-    /* (non-Javadoc)
+    /*
+     * (non-Javadoc)
+     * 
      * @see java.util.concurrent.locks.Lock#tryLock()
      */
     public boolean tryLock() {
         return remote.hasExclusiveAccess();
     }
-    
-    
 
-    /* (non-Javadoc)
+    /*
+     * (non-Javadoc)
+     * 
      * @see java.util.concurrent.locks.Lock#tryLock(long, java.util.concurrent.TimeUnit)
      */
     public boolean tryLock(long time, TimeUnit unit) throws InterruptedException {
         return tryLock();
     }
 
-    /* (non-Javadoc)
+    /*
+     * (non-Javadoc)
+     * 
      * @see java.util.concurrent.locks.Lock#unlock()
      */
     public void unlock() {
-        // Doesn't really matter
+        // Nothing to unlock, client holds lock as long as it can
     }
 
-    /* (non-Javadoc)
+    /*
+     * (non-Javadoc)
+     * 
      * @see java.util.concurrent.locks.Lock#newCondition()
      */
     public Condition newCondition() {

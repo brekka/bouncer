@@ -26,84 +26,100 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketAddress;
 
-
 /**
- * TODO Description of DefaultBouncerClient
- *
+ * Default implementation of the bouncer client. Upon construction, a new daemon thread will be created that will
+ * attempt to permanently lock and maintain that lock with a bouncer server. That thread can be stopped by calling the
+ * {@link #shutdown()} method.
+ * 
  * @author Andrew Taylor (andrew@brekka.org)
  */
 public class DefaultBouncerClient implements BouncerClient {
-    
-    private final SocketAddress socketAddress;
+
     private final String lockName;
-    private final AcquireLoop acquireLoop;
-    private boolean exclusiveAccess;
-    
+    private final Handler handler;
+
     public DefaultBouncerClient(String hostname, int port, String lockName) {
         this(hostname, port, lockName, 4000, 2000, 2000);
     }
-    
+
     /**
-     * @param exclusiveAccess
-     * @param socketAddress
+     * @param hostname
+     * @param port
      * @param lockName
-     * @param keepAliveExecutorService
+     * @param soTimeout
+     * @param connectTimeout
+     * @param retryDelay
      */
-    public DefaultBouncerClient(String hostname, int port, String lockName, int soTimeout, int connectTimeout, int retryDelay) {
-        this.socketAddress = new InetSocketAddress(hostname, port);
+    public DefaultBouncerClient(String hostname, int port, String lockName, int soTimeout, int connectTimeout,
+            int retryDelay) {
         this.lockName = lockName;
-        this.acquireLoop = new AcquireLoop(soTimeout, connectTimeout, retryDelay);
+        InetSocketAddress socketAddress = new InetSocketAddress(hostname, port);
+        this.handler = new Handler(socketAddress, soTimeout, connectTimeout, retryDelay);
         String threadName = "Bouncer-" + hostname + "-" + lockName;
-        Thread thread = new Thread(this.acquireLoop, threadName);
+        Thread thread = new Thread(this.handler, threadName);
         // Make sure we don't prevent the JVM from shutting down.
         thread.setDaemon(true);
         thread.start();
     }
-    
-    /* (non-Javadoc)
+
+    /*
+     * (non-Javadoc)
+     * 
      * @see org.brekka.bouncer.BouncerClient#hasExclusiveAccess()
      */
     @Override
     public boolean hasExclusiveAccess() {
-        return exclusiveAccess;
+        return handler.hasExclusiveAccess();
     }
-    
-    /* (non-Javadoc)
+
+    /**
+     * @return the lockName
+     */
+    public String getLockName() {
+        return lockName;
+    }
+
+    /*
+     * (non-Javadoc)
+     * 
      * @see org.brekka.bouncer.BouncerClient#shutdown()
      */
     @Override
     public void shutdown() {
-        this.acquireLoop.stop();
+        this.handler.stop();
     }
-    
-    private class AcquireLoop implements Runnable {
+
+    private class Handler implements Runnable {
+        private final SocketAddress socketAddress;
         private final int soTimeout;
         private final int connectTimeout;
         private final int retryDelay;
-        
+        private boolean exclusiveAccess;
         private boolean running = true;
-        
+
         /**
          * @param soTimeout
          * @param connectTimeout
          * @param running
          */
-        public AcquireLoop(int soTimeout, int connectTimeout, int retryDelay) {
+        public Handler(SocketAddress socketAddress, int soTimeout, int connectTimeout, int retryDelay) {
+            this.socketAddress = socketAddress;
             this.soTimeout = soTimeout;
             this.connectTimeout = connectTimeout;
             this.retryDelay = retryDelay;
         }
-        
+
         public void run() {
             while (running) {
                 try (Socket socket = new Socket()) {
                     socket.setSoTimeout(soTimeout);
                     socket.setKeepAlive(true);
                     socket.connect(socketAddress, connectTimeout);
-                    loop(socket);
+                    serve(socket);
                 } catch (IOException e) {
-                    // Ignore
+                    // Ignore, client will reconnect until stopped.
                 } finally {
+                    // We only get to this point if something went wrong
                     exclusiveAccess = false;
                     try {
                         // Avoid thrashing
@@ -114,8 +130,8 @@ public class DefaultBouncerClient implements BouncerClient {
                 }
             }
         }
-        
-        private void loop(Socket socket) throws IOException {
+
+        private void serve(Socket socket) throws IOException {
             try (InputStream is = socket.getInputStream();
                     OutputStream outputStream = socket.getOutputStream();
                     BufferedReader br = new BufferedReader(new InputStreamReader(is));
@@ -123,24 +139,38 @@ public class DefaultBouncerClient implements BouncerClient {
                 out.println(lockName);
                 out.flush();
                 while (running) {
-                    out.println("LOCK");
-                    out.flush();
-                    String line = br.readLine();
-                    if (line == null) {
-                        // No line, reconnect
-                        break;
-                    } else if (line.equals("LOCKED")) {
-                        exclusiveAccess = true;
-                    } else {
-                        exclusiveAccess = false;
-                    }
-                    if (Thread.currentThread().isInterrupted()) {
-                        running = false;
-                    }
+                    // While everything is okay, we stay in this loop.
+                    serve(br, out);
                 }
             }
         }
-        
+
+        private void serve(BufferedReader reader, PrintWriter writer) throws IOException {
+            writer.println("LOCK");
+            writer.flush();
+            String line = reader.readLine();
+            if (line == null) {
+                // No line, reconnect
+                return;
+            }
+
+            if (line.equals("LOCKED")) {
+                exclusiveAccess = true;
+            } else {
+                exclusiveAccess = false;
+            }
+            if (Thread.currentThread().isInterrupted()) {
+                running = false;
+            }
+        }
+
+        /**
+         * @return the exclusiveAccess
+         */
+        public boolean hasExclusiveAccess() {
+            return exclusiveAccess;
+        }
+
         public void stop() {
             running = false;
         }
