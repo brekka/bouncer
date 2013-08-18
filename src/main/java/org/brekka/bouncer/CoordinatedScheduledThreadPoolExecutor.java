@@ -19,6 +19,7 @@ package org.brekka.bouncer;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Delayed;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.RunnableScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -31,6 +32,10 @@ import java.util.concurrent.locks.Lock;
  * Tasks submitted to this {@link ScheduledThreadPoolExecutor} extension will need to acquire a lock on the provided
  * {@link Lock} instance in order to run. Intended to be used to support distributed execution of scheduled tasks in a
  * cluster where a given task only executes on one server at any given time.
+ * 
+ * Note that the current implementation has some sub-optimal implementations of {@link Future#get()} and
+ * {@link Future#get(long, TimeUnit)} so the caller should avoid calling those methods on the returned future if at all
+ * possible. The assumption is that with scheduled tasks the get methods will never be called.
  * 
  * @author Andrew Taylor (andrew@brekka.org)
  */
@@ -102,6 +107,7 @@ public class CoordinatedScheduledThreadPoolExecutor extends ScheduledThreadPoolE
     private static class LockAcquiringRunnableScheduledFuture<V> implements RunnableScheduledFuture<V> {
         private final Lock lock;
         private final RunnableScheduledFuture<V> actual;
+        private Boolean skipped = null;
 
         /**
          * @param actual
@@ -126,11 +132,14 @@ public class CoordinatedScheduledThreadPoolExecutor extends ScheduledThreadPoolE
          */
         public void run() {
             if (lock.tryLock()) {
+                skipped = Boolean.FALSE;
                 try {
                     actual.run();
                 } finally {
                     lock.unlock();
                 }
+            } else {
+                skipped = Boolean.TRUE;
             }
         }
 
@@ -190,30 +199,53 @@ public class CoordinatedScheduledThreadPoolExecutor extends ScheduledThreadPoolE
          * @see java.util.concurrent.Future#isDone()
          */
         public boolean isDone() {
-            return actual.isDone();
+            return skipped != null;
         }
 
         /**
-         * @return
-         * @throws InterruptedException
-         * @throws ExecutionException
-         * @see java.util.concurrent.Future#get()
+         * Make sure we don't call the {@link #get()} on the actual future instance as when we skip execution of
+         * {@link #run()}, the future does not know it has been executed and will block indefinitely.
+         * 
+         * Scheduling systems should really not be calling the get method, but just in case provide a crude workaround
+         * that avoids calling to {@link #get()} on the actual future unless we know that run has been called. A more
+         * ideal solution would be to re-implement the private class ScheduledFutureTask where we could implement this
+         * the correct way.
          */
         public V get() throws InterruptedException, ExecutionException {
+            while (skipped == null) {
+                Thread.sleep(10);
+            }
+            if (skipped) {
+                return null;
+            }
             return actual.get();
         }
 
         /**
-         * @param timeout
-         * @param unit
-         * @return
-         * @throws InterruptedException
-         * @throws ExecutionException
-         * @throws TimeoutException
-         * @see java.util.concurrent.Future#get(long, java.util.concurrent.TimeUnit)
+         * Make sure we don't call the {@link #get(long, TimeUnit))} on the actual future instance as when we skip
+         * execution of {@link #run()}, the future does not know it has been executed and will block for at least as
+         * long as the timeout, even if the run has already been skipped.
+         * 
+         * Scheduling systems should really not be calling the get method, but just in case provide a crude workaround
+         * that avoids calling to {@link #get(long, TimeUnit))} on the actual future unless we know that run has been
+         * called. A more ideal solution would be to re-implement the private class ScheduledFutureTask where we could
+         * implement this the correct way.
          */
         public V get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
-            return actual.get(timeout, unit);
+            long pollIntervalMillis = 10;
+            for (long i = 0; i < unit.toMillis(timeout); i += pollIntervalMillis) {
+                if (skipped != null) {
+                    break;
+                }
+                Thread.sleep(pollIntervalMillis);
+            }
+            if (skipped == null) {
+                throw new TimeoutException();
+            }
+            if (skipped) {
+                return null;
+            }
+            return actual.get();
         }
 
         /**
