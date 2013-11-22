@@ -22,7 +22,7 @@
     <scm>
         <url>https://github.com/brekka/bouncer.git</url>
         <connection>https://github.com/brekka/bouncer.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com:brekka/bouncer.git</developerConnection>
+        <developerConnection>scm:git:ssh://git@github.com/brekka/bouncer.git</developerConnection>
         <tag>HEAD</tag>
     </scm>
     
