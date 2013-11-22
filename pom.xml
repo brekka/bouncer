@@ -2,7 +2,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.brekka.scheduling</groupId>
     <artifactId>bouncer</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0</version>
 
     <name>Bouncer</name>
 
@@ -23,7 +23,7 @@
         <url>https://github.com/brekka/bouncer.git</url>
         <connection>https://github.com/brekka/bouncer.git</connection>
         <developerConnection>scm:git:ssh://git@github.com:brekka/bouncer.git</developerConnection>
-        <tag>HEAD</tag>
+        <tag>v1.0.0</tag>
     </scm>
     
     <licenses>
