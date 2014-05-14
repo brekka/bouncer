@@ -30,16 +30,16 @@ import java.net.SocketAddress;
  * Default implementation of the bouncer client. Upon construction, a new daemon thread will be created that will
  * attempt to permanently lock and maintain that lock with a bouncer server. That thread can be stopped by calling the
  * {@link #shutdown()} method.
- * 
+ *
  * @author Andrew Taylor (andrew@brekka.org)
  */
 public class DefaultBouncerClient implements BouncerClient {
 
-    private final String lockName;
+    protected final String lockName;
     private final Handler handler;
 
     public DefaultBouncerClient(String hostname, int port, String lockName) {
-        this(hostname, port, lockName, 4000, 2000, 2000);
+        this(hostname, port, lockName, 4000, 2000, 5000);
     }
 
     /**
@@ -64,24 +64,25 @@ public class DefaultBouncerClient implements BouncerClient {
 
     /*
      * (non-Javadoc)
-     * 
+     *
      * @see org.brekka.bouncer.BouncerClient#hasExclusiveAccess()
      */
     @Override
     public boolean hasExclusiveAccess() {
-        return handler.hasExclusiveAccess();
+        return this.handler.hasExclusiveAccess();
     }
 
     /**
      * @return the lockName
      */
+    @Override
     public String getLockName() {
-        return lockName;
+        return this.lockName;
     }
 
     /*
      * (non-Javadoc)
-     * 
+     *
      * @see org.brekka.bouncer.BouncerClient#shutdown()
      */
     @Override
@@ -109,23 +110,24 @@ public class DefaultBouncerClient implements BouncerClient {
             this.retryDelay = retryDelay;
         }
 
+        @Override
         public void run() {
-            while (running) {
+            while (this.running) {
                 try (Socket socket = new Socket()) {
-                    socket.setSoTimeout(soTimeout);
+                    socket.setSoTimeout(this.soTimeout);
                     socket.setKeepAlive(true);
-                    socket.connect(socketAddress, connectTimeout);
+                    socket.connect(this.socketAddress, this.connectTimeout);
                     serve(socket);
                 } catch (IOException e) {
                     // Ignore, client will reconnect until stopped.
                 } finally {
                     // We only get to this point if something went wrong
-                    exclusiveAccess = false;
+                    this.exclusiveAccess = false;
                     try {
                         // Avoid thrashing
-                        Thread.sleep(retryDelay);
+                        Thread.sleep(this.retryDelay);
                     } catch (InterruptedException e) {
-                        running = false;
+                        this.running = false;
                     }
                 }
             }
@@ -136,9 +138,9 @@ public class DefaultBouncerClient implements BouncerClient {
                     OutputStream outputStream = socket.getOutputStream();
                     BufferedReader br = new BufferedReader(new InputStreamReader(is));
                     PrintWriter out = new PrintWriter(outputStream)) {
-                out.println(lockName);
+                out.println(DefaultBouncerClient.this.lockName);
                 out.flush();
-                while (running) {
+                while (this.running) {
                     // While everything is okay, we stay in this loop.
                     serve(br, out);
                 }
@@ -150,17 +152,19 @@ public class DefaultBouncerClient implements BouncerClient {
             writer.flush();
             String line = reader.readLine();
             if (line == null) {
-                // No line, reconnect
-                return;
+                throw new IOException("End of stream reached, will reconnect");
             }
 
             if (line.equals("LOCKED")) {
-                exclusiveAccess = true;
+                this.exclusiveAccess = true;
+            } else if (line.equals("REJECTED")) {
+                this.exclusiveAccess = false;
             } else {
-                exclusiveAccess = false;
+                // Force reconnect
+                throw new IOException("Unexpected response");
             }
             if (Thread.currentThread().isInterrupted()) {
-                running = false;
+                this.running = false;
             }
         }
 
@@ -168,11 +172,11 @@ public class DefaultBouncerClient implements BouncerClient {
          * @return the exclusiveAccess
          */
         public boolean hasExclusiveAccess() {
-            return exclusiveAccess;
+            return this.exclusiveAccess;
         }
 
         public void stop() {
-            running = false;
+            this.running = false;
         }
     }
 }
