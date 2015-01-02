@@ -25,6 +25,8 @@ import java.io.PrintWriter;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketAddress;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Default implementation of the bouncer client. Upon construction, a new daemon thread will be created that will
@@ -34,6 +36,8 @@ import java.net.SocketAddress;
  * @author Andrew Taylor (andrew@brekka.org)
  */
 public class DefaultBouncerClient implements BouncerClient {
+    
+    private static final Logger log = Logger.getLogger(DefaultBouncerClient.class.getName());
 
     protected final String lockName;
     private final Handler handler;
@@ -120,6 +124,12 @@ public class DefaultBouncerClient implements BouncerClient {
                     serve(socket);
                 } catch (IOException e) {
                     // Ignore, client will reconnect until stopped.
+                    if (log.isLoggable(Level.INFO)) {
+                        log.log(Level.INFO, "Resetting connection to bouncer server", e);
+                    }
+                } catch (Throwable e) {
+                    // More interesting, lets write out an error
+                    log.log(Level.SEVERE, "Encountered unexpected throwable, will retry", e);
                 } finally {
                     // We only get to this point if something went wrong
                     this.exclusiveAccess = false;
